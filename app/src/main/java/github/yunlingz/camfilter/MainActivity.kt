@@ -4,14 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.hardware.Camera
-import android.media.ExifInterface
 import android.os.Build
 import android.os.Bundle
-import android.renderscript.Allocation
-import android.renderscript.Element
-import android.renderscript.RenderScript
-import android.renderscript.ScriptIntrinsicYuvToRGB
-import android.renderscript.Type
+import android.renderscript.*
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -23,6 +18,7 @@ import androidx.core.content.ContextCompat
 import com.eclipsesource.v8.*
 import github.yunlingz.camfilter.databinding.ActivityMainBinding
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 
 
 class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
@@ -35,13 +31,14 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private lateinit var runtime: V8
 
+
     private var yuvToBitmapConvertor: YuvToBitmapConvertor? = null
 
     inner class YuvToBitmapConvertor(
-        private val mArraySize: Int,
         private val mWidth: Int,
         private val mHeight: Int
     ) {
+        private val mArraySize = mWidth * mHeight * 3 / 2
         private val mRs = RenderScript.create(this@MainActivity)
 
         @RequiresApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
@@ -60,7 +57,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             mRs, mRgbaType.create(), Allocation.USAGE_SCRIPT
         )
 
-        @RequiresApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+        @RequiresApi(Build.VERSION_CODES.N)
         fun convert(yuvByteArray: ByteArray): Bitmap {
             mMemIn.copyFrom(yuvByteArray)
             mScript.setInput(mMemIn)
@@ -70,10 +67,39 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             )
             mMemOut.copyTo(bitmap)
             return bitmap
+
+//            val stream = ByteArrayOutputStream()
+//
+//            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+//
+//            val byteArray = stream.toByteArray()
+//
+//            bitmap.recycle()
+//
+//
+//            val another = getByteArrayFromByteBuffer(mMemOut.byteBuffer)
+//            Log.d("BYTE_EQUAL", "${another.contentEquals(byteArray)}")
+//            return byteArray
+//            val buffer = ByteBuffer.allocate(4 * mHeight * mWidth)
+//            bitmap.copyPixelsToBuffer(buffer)
+
+//            val stream = ByteArrayOutputStream()
+//            image.compressToJpeg(Rect(0, 0, width, height), 50, stream)
+//            return stream.toByteArray()
+//            Log.d("BYTE_SIZE", "${mMemOut.byteBuffer.remaining()}")
+//            Log.d("BYTE_SIZE", "${mHeight * mWidth * 4}")
+//            return getByteArrayFromByteBuffer(mMemOut.byteBuffer)
         }
     }
 
-    fun Bitmap.rotate(): Bitmap {
+
+    private fun getByteArrayFromByteBuffer(byteBuffer: ByteBuffer): ByteArray {
+        val bytesArray = ByteArray(byteBuffer.remaining())
+        byteBuffer.get(bytesArray)
+        return bytesArray
+    }
+
+    private fun Bitmap.rotate(): Bitmap {
         val matrix =
             Matrix().apply {
                 postScale(1F, -1F, width / 2F, height / 2F);
@@ -81,6 +107,31 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             }
         return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
     }
+
+    private fun rgbaToBitmap(rgba: ByteArray): Bitmap? {
+        val options = BitmapFactory.Options()
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888
+        Log.d("BYTE_SIZE", "0: ${rgba.size}")
+        var bitmap: Bitmap? = null
+        try {
+            val options = BitmapFactory.Options()
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888
+            bitmap = BitmapFactory.decodeByteArray(rgba, 0, rgba.size, options)
+            //    bitmap =  BitmapFactory.decodeByteArray(rgba, 0, rgba.size, options)
+        } catch (e: java.lang.Exception) {
+            Log.d("BYTE_SIZE", "${e.printStackTrace()}")
+        }
+        return bitmap
+    }
+
+//    private fun ByteArray.toBitmap(): Bitmap {
+////        val options = BitmapFactory.Options()
+////        options.inPreferredConfig = Bitmap.Config.ARGB_8888
+////        val bitmap = BitmapFactory.decodeByteArray(this, 0, this.size, options)
+//        Log.d("BYTE_SIZE", "${this.size}")
+//        val bitmap = BitmapFactory.decodeByteArray(this, 0, this.size)
+//        return bitmap.rotate()
+//    }
 
 
     @RequiresApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
@@ -204,12 +255,13 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         camera.release()
     }
 
-    @RequiresApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+    @RequiresApi(Build.VERSION_CODES.N)
     private fun startCamera() {
         requestPermission()
 
         try {
             camera = Camera.open(Camera.CameraInfo.CAMERA_FACING_FRONT)
+
         } catch (e: Exception) {
             Log.e("CAM_DEBUG", "$e")
             e.printStackTrace()
@@ -217,23 +269,25 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             finish()
         }
 
-        camera.setPreviewCallback { bytes, camera ->
-            Log.d("GET_BYTE", "${bytes.size}")
-            val height = camera.parameters.previewSize.height
+        camera.setPreviewCallback { bytes, _ ->
             val width = camera.parameters.previewSize.width
+            val height = camera.parameters.previewSize.height
             if (yuvToBitmapConvertor == null) {
-                yuvToBitmapConvertor = YuvToBitmapConvertor(bytes.size, width, height)
+                yuvToBitmapConvertor = YuvToBitmapConvertor(width, height)
             } else {
-                Log.d("GET_BYTE", "H:${height}, W:$width")
+                //            Log.d("GET_BYTE", "${bytes.size}")
                 val canvas = surfaceHolder.lockCanvas()
 //      canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
-//      val cacheBitmap: Bitmap? = nv21ToBitmap(bytes, width, height)
-                val bitmap = yuvToBitmapConvertor?.convert(bytes)?.rotate()
+                val bitmap = yuvToBitmapConvertor?.convert(bytes)
                 if (bitmap != null) {
-                    canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    val buffer = ByteBuffer.allocate(4 * height * width)
+                    bitmap.copyPixelsToBuffer(buffer)
+                    val rgba = getByteArrayFromByteBuffer(buffer)
+                    canvas.drawBitmap(bitmap.rotate(), 0f, 0f, null)
                 }
                 surfaceHolder.unlockCanvasAndPost(canvas)
             }
+
         }
 
         val params = camera.parameters;
@@ -313,7 +367,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 //    startCamera()
 //  }
 
-    @RequiresApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+    @RequiresApi(Build.VERSION_CODES.N)
     override fun surfaceCreated(holder: SurfaceHolder) {
         startCamera()
     }
