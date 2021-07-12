@@ -35,7 +35,7 @@ android {
     buildFeatures {
         viewBinding true
     }
-    
+
     lintOptions {
         disable 'Deprecation'
     }
@@ -55,4 +55,8 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
 
     implementation 'com.eclipsesource.j2v8:j2v8:6.2.0@aar'
+
+//    implementation "com.fasterxml.jackson.core:jackson-core:2.8.9"
+//    implementation "com.fasterxml.jackson.core:jackson-databind:2.8.9"
+//    implementation "com.fasterxml.jackson.module:jackson-module-kotlin:2.8.9"
 }
