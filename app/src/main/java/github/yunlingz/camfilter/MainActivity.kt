@@ -1,15 +1,20 @@
 package github.yunlingz.camfilter
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.hardware.Camera
 import android.os.Build
 import android.os.Bundle
 import android.renderscript.*
+import android.util.Base64
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.webkit.JavascriptInterface
+import android.webkit.WebSettings
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
@@ -20,6 +25,7 @@ import github.yunlingz.camfilter.databinding.ActivityMainBinding
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+import java.util.*
 
 
 class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
@@ -28,6 +34,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
   private lateinit var surfaceHolder: SurfaceHolder
   private lateinit var camera: Camera
   private lateinit var surfaceTexture: SurfaceTexture
+  private lateinit var mWebView: WebView
 
 
   private lateinit var runtime: V8
@@ -264,7 +271,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     camera.release()
   }
 
-  @RequiresApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+  @RequiresApi(Build.VERSION_CODES.O)
   private fun startCamera() {
     requestPermission()
 
@@ -287,15 +294,17 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         //            Log.d("GET_BYTE", "${bytes.size}")
 
         // send bytes to js
+        Log.d("EVAL", "completed")
         val newBytes = jsBridgeByString(bytes)
-
-        val canvas = surfaceHolder.lockCanvas()
-//      canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
-        val rgbBmp = yuvToBitmapConvertor?.convert(newBytes)?.rotate()
-        if (rgbBmp != null) {
-          canvas.drawBitmap(rgbBmp, 0f, 0f, null)
-        }
-        surfaceHolder.unlockCanvasAndPost(canvas)
+//
+//
+//        val canvas = surfaceHolder.lockCanvas()
+////      canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
+//        val rgbBmp = yuvToBitmapConvertor?.convert(newBytes)?.rotate()
+//        if (rgbBmp != null) {
+//          canvas.drawBitmap(rgbBmp, 0f, 0f, null)
+//        }
+//        surfaceHolder.unlockCanvasAndPost(canvas)
       }
 
     }
@@ -338,29 +347,144 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
   }
 
-  private fun jsBridgeByString(bytes: ByteArray): ByteArray {
-    val cSet = charset("windows-1252")
-    val passStr = String(bytes, cSet)
-    return passStr.toByteArray(cSet)
+  private fun buildJsCode(strImg: String): String {
+//    var code = "let strEncode = new TextDecoder(\"iso-8859-1\");\n"
+//    code += "let yuv = strEncode.encode(\"$strImg\");\n"
+//    code += "let getImage = function() { return \"abcd\"; }\n"
+//    code += "let strImg = strEncode.decode(yuv);\n"
+//    code += "getImage()"
+    var code = "function getImage() { return \"abcd\"; }\n"
+    code += "getImage();\n"
+    code = "javascript:$code"
+
+    return code
   }
 
-  private fun jsFilter(bytes: ByteArray): ByteArray {
-//    Log.d("BYTE_SHAPE", "${bytes.size}")
-    val buffer = V8ArrayBuffer(runtime, bytes.size)
-    buffer.put(bytes)
+  inner class Bridge {
+    var jsResult: String? = null
 
-    val jsArray = V8TypedArray(runtime, buffer, V8Value.BYTE, 0, bytes.size)
-
-    // TODO: load webgl functions
-    runtime.executeScript("var canvas = document.createElement('canvas');")
-
-    val result = jsArray.getBytes(0, jsArray.length())
-
-    jsArray.close()
-    buffer.close()
-    return result
+    @JavascriptInterface
+    fun putJsResult(result: String?) {
+      jsResult = result
+    }
   }
 
+  private val bridge = Bridge()
+
+
+  @RequiresApi(Build.VERSION_CODES.O)
+  private fun jsBridgeByString(bytes: ByteArray) {
+//    val cSet = charset("windows-1252")
+//    var passStr = String(bytes, cSet)
+//    var passStr = BaCodec.encode(bytes)
+//
+//    mWebView.evaluateJavascript(
+//      "(function(){" +
+//          "document.getElementById(\"image_str_holder\").innerHTML = \"$passStr\";" +
+//          "})()", null
+//    );
+////
+//
+//
+//    mWebView.evaluateJavascript(
+//      "(function(){" +
+//          "return (document.getElementById(\"image_str_holder\").innerHTML);" +
+//          "})()"
+//    ) {
+//      Log.d("IMAGE", "${it}")
+//    }
+
+
+//    mWebView.evaluateJavascript(
+//      "image = \"$passStr\";", null
+//    );
+//    );
+
+
+//    var passStr = Base64.encodeToString(bytes, Base64.DEFAULT)
+    val passStr = String(bytes, StandardCharsets.ISO_8859_1)
+
+//    val passStr = BaCodec.encode(bytes)
+    Log.d("IMAGE_SHOW", "\" ${passStr} \"")
+    Log.d("IMAGE_SCRIPT", "procImg(\"$passStr\")")
+    mWebView.evaluateJavascript(
+      "procImg(\"$passStr\")"
+//      "procImg( 123 )"
+    ) {
+      Log.d("IMAGE_RETURN", "${it}")
+      Log.d("IMAGE_EQUAL", "${it.equals(passStr)}")
+//      Log.d("IMAGE_EQUAL", "${it.equals(passStr)}")
+//      newResult = it
+
+//      val newBytes = passStr.toByteArray(StandardCharsets.ISO_8859_1)
+      val newBytes = passStr.toByteArray(StandardCharsets.ISO_8859_1)
+
+      val canvas = surfaceHolder.lockCanvas()
+//      canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
+      val rgbBmp = yuvToBitmapConvertor?.convert(newBytes)?.rotate()
+      if (rgbBmp != null) {
+        canvas.drawBitmap(rgbBmp, 0f, 0f, null)
+      }
+      surfaceHolder.unlockCanvasAndPost(canvas)
+
+    }
+
+//    while (newResult == null) {
+//      Thread.sleep(10)
+//    }
+
+
+
+//    mWebView.evaluateJavascript("bridge.putJsResult(procImg( String.raw `$passStr` ))", null);
+
+//    return newResult!!.toByteArray(cSet)
+
+//    return passStr.toByteArray(cSet)
+  }
+
+//    mWebView.evaluateJavascript(
+//      "(function() { return ('<html>'+document.getElementsByTagName('html')[0].innerHTML+'</html>'); })();") {
+//      Log.d("IMAGE", "${it}")
+//    }
+
+//    mWebView.evaluateJavascript("image = strEncode.encode(\"$passStr\")", null)
+
+    // sim filter begin
+//    mWebView.evaluateJavascript("image = strEncode.decode(image)", null)
+    // sim filter end
+
+//    var img: ByteArray? = null
+//    mWebView.evaluateJavascript(buildJsCode(passStr)) { rVal ->
+//      Log.d("IMAGE_FILTER", "${rVal == passStr}")
+//      Log.d("IMAGE_FILTER", "${rVal.length}")
+//      Log.d("IMAGE_FILTER", "${rVal}")
+//      img = rVal.toByteArray(cSet)
+//    }
+//    return Snappy.uncompress(passStr.toByteArray(cSet))
+//    return passStr.toByteArray(cSet)
+//    return img!!
+//    return bytes
+//  }
+
+//  private fun jsFilter(bytes: ByteArray): ByteArray {
+////    Log.d("BYTE_SHAPE", "${bytes.size}")
+//    val buffer = V8ArrayBuffer(runtime, bytes.size)
+//    buffer.put(bytes)
+//
+//    val jsArray = V8TypedArray(runtime, buffer, V8Value.BYTE, 0, bytes.size)
+//
+//    // TODO: load webgl functions
+//    runtime.executeScript("var canvas = document.createElement('canvas');")
+//
+//    val result = jsArray.getBytes(0, jsArray.length())
+//
+//    jsArray.close()
+//    buffer.close()
+//    return result
+//  }
+
+  @SuppressLint("AddJavascriptInterface")
+  @RequiresApi(Build.VERSION_CODES.KITKAT)
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     binding = ActivityMainBinding.inflate(layoutInflater)
@@ -371,8 +495,42 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     surfaceTexture = SurfaceTexture(2)
     runtime = V8.createV8Runtime()
 
+    mWebView = binding.displayView
+
     // display root
     setContentView(binding.root)
+
+    mWebView.loadUrl("file:///android_asset/index.html")
+    mWebView.addJavascriptInterface(bridge, "bridge");
+//    mWebView.settings.javaScriptEnabled = true
+//    mWebView.settings.domStorageEnabled = true
+
+    val settings: WebSettings = mWebView.settings
+    settings.javaScriptEnabled = true
+    settings.useWideViewPort = true
+    settings.loadWithOverviewMode = true // 缩放至屏幕的大小
+
+    settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.SINGLE_COLUMN
+    settings.domStorageEnabled = true //设置支持localstorage
+
+    settings.setSupportZoom(true) //支持缩放，默认为true。是下面那个的前提。
+
+    settings.builtInZoomControls = false //设置内置的缩放控件。若为false，则该WebView不可缩放
+
+    settings.displayZoomControls = true //隐藏原生的缩放控件
+
+    settings.javaScriptCanOpenWindowsAutomatically = true //支持通过JS打开新窗口
+
+    settings.loadsImagesAutomatically = true //支持自动加载图片
+
+    settings.defaultTextEncodingName = "utf-8" //设置编码格式
+
+    settings.allowFileAccess = true
+//    mWebView.webViewClient = object: WebViewClient() {
+//
+//
+//    }
+
 
 //    Toast.makeText(this, "INIT camera", Toast.LENGTH_SHORT).show()
 
@@ -383,7 +541,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 //    startCamera()
 //  }
 
-  @RequiresApi(Build.VERSION_CODES.N)
+  @RequiresApi(Build.VERSION_CODES.O)
   override fun surfaceCreated(holder: SurfaceHolder) {
     startCamera()
   }
